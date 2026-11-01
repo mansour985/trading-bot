@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>AI Trading Pro (Web)</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, sans-serif; background: #080A10; color: #E2E8F0; min-height: 100vh; padding-bottom: 80px; overflow-x: hidden; }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .content { display: none; padding: 16px; animation: fadeIn 0.3s ease-out; }
+    .content.active { display: block; }
+
+    .top-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: linear-gradient(180deg, #131722 0%, #0F121A 100%); border-bottom: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    .asset-title { font-size: 22px; font-weight: 800; color: #4FC3F7; }
+    .tf-bar { display: flex; gap: 8px; overflow-x: auto; padding: 12px 16px; background: #0F121A; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .tf-bar::-webkit-scrollbar { display: none; }
+    .tf-btn { padding: 6px 16px; border-radius: 20px; background: rgba(255,255,255,0.05); color: #94A3B8; font-weight: 600; border: 1px solid transparent; cursor: pointer; white-space: nowrap; }
+    .tf-btn.active { background: rgba(41, 98, 255, 0.15); color: #4FC3F7; border-color: rgba(41, 98, 255, 0.4); }
+
+    .chart-card { background: linear-gradient(145deg, #131722, #1A1F2B); border-radius: 20px; padding: 12px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 16px; position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    #chart-container { height: 320px; width: 100%; position: relative; border-radius: 12px; overflow: hidden; }
+    #labels-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+
+    .overlay-label { position: absolute; left: 10px; transform: translateY(-50%); font-size: 12px; font-weight: 800; display: flex; align-items: center; gap: 8px; background: rgba(15, 18, 26, 0.85); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 6px; border-left: 4px solid; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 8px currentColor; }
+
+    .details-card { background: linear-gradient(145deg, #131722, #1A1F2B); border-radius: 20px; padding: 20px; border: 1px solid rgba(255,255,255,0.06); display: none; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    .details-title { text-align: center; font-size: 18px; color: #4FC3F7; font-weight: 800; margin-bottom: 20px; }
+    .detail-row { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-label { color: #94A3B8; font-size: 14px; }
+    .detail-value { font-weight: 800; font-size: 16px; text-shadow: 0 0 10px currentColor; }
+    .val-entry { color: #4FC3F7; } .val-sl { color: #FF5252; } .val-tp { color: #00E676; } .val-rr { color: #B388FF; }
+    .val-type-long { color: #00E676; background: rgba(0,230,118,0.1); padding: 4px 12px; border-radius: 20px; }
+    .val-type-short { color: #FF5252; background: rgba(255,82,82,0.1); padding: 4px 12px; border-radius: 20px; }
+
+    .settings-card { background: #131722; border-radius: 16px; padding: 16px; margin-bottom: 16px; border: 1px solid rgba(255,255,255,0.05); }
+    .settings-card h3 { font-size: 16px; margin-bottom: 16px; color: #E2E8F0; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
+    .input-group { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .input-group label { font-size: 14px; color: #94A3B8; }
+    .input-field { background: #080A10; border: 1px solid rgba(255,255,255,0.1); color: #E2E8F0; padding: 10px; border-radius: 8px; width: 80px; text-align: center; font-weight: bold; }
+    .input-field.full { width: 100%; text-align: left; }
+    .btn { width: 100%; background: rgba(41, 98, 255, 0.15); color: #4FC3F7; border: 1px solid rgba(41, 98, 255, 0.4); padding: 14px; border-radius: 12px; font-weight: 800; cursor: pointer; text-align: center; margin-bottom: 12px; }
+    .btn-primary { background: linear-gradient(90deg, #2962FF, #1565C0); color: white; border: none; }
+    
+    .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #2a2e39; transition: .4s; border-radius: 28px; }
+    .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+    input:checked + .slider { background-color: #00E676; }
+    input:checked + .slider:before { transform: translateX(22px); }
+
+    .history-item { background: #1A1F2B; padding: 14px; border-radius: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; border-left: 4px solid; }
+    .history-item.win { border-left-color: #00E676; } .history-item.loss { border-left-color: #FF5252; }
+
+    .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(15, 18, 26, 0.95); backdrop-filter: blur(10px); border-top: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-around; padding: 12px 8px; z-index: 1000; }
+    .nav-item { display: flex; flex-direction: column; align-items: center; color: #64748B; font-size: 11px; font-weight: 700; gap: 6px; cursor: pointer; }
+    .nav-item.active { color: #4FC3F7; }
+    .nav-icon { width: 24px; height: 24px; fill: currentColor; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+    <div style="display:flex; align-items:center; gap:8px;">
+        <div class="asset-title" id="headerAsset">ETHUSD</div>
+        <div style="font-size:12px;color:#64748B; font-weight:bold;" id="headerTf">• 1H</div>
+    </div>
+    <select id="assetSelector" onchange="changeAsset()" style="background:#1A1F2B; color:#4FC3F7; border:1px solid rgba(41,98,255,0.3); padding:8px 12px; border-radius:8px; font-weight:bold; outline:none;">
+        <option value="XAU/USD">XAU/USD</option>
+        <option value="BTC/USD">BTC/USD</option>
+        <option value="ETH/USD">ETH/USD</option>
+    </select>
+</div>
+
+<div class="tf-bar">
+    <button class="tf-btn" onclick="setTf('1min', this)">1m</button>
+    <button class="tf-btn" onclick="setTf('5min', this)">5m</button>
+    <button class="tf-btn" onclick="setTf('15min', this)">15m</button>
+    <button class="tf-btn" onclick="setTf('30min', this)">30m</button>
+    <button class="tf-btn active" onclick="setTf('1h', this)">1h</button>
+    <button class="tf-btn" onclick="setTf('4h', this)">4h</button>
+</div>
+
+<div id="tab-signals" class="content active">
+    <div class="chart-card">
+        <div id="chart-container"><div id="labels-container"></div></div>
+    </div>
+    <div class="details-card" id="detailsCard">
+        <div class="details-title">تفاصيل الصفقة</div>
+        <div class="detail-row"><span class="detail-label">الزوج</span><span class="detail-value" id="ui-symbol">--</span></div>
+        <div class="detail-row"><span class="detail-label">النوع</span><span class="detail-value" id="ui-type">--</span></div>
+        <div class="detail-row"><span class="detail-label">الدخول</span><span class="detail-value val-entry" id="ui-entry">--</span></div>
+        <div class="detail-row"><span class="detail-label">وقف الخسارة</span><span class="detail-value val-sl" id="ui-sl">--</span></div>
+        <div class="detail-row"><span class="detail-label">الهدف 1</span><span class="detail-value val-tp" id="ui-tp1">--</span></div>
+        <div class="detail-row"><span class="detail-label">الهدف 2</span><span class="detail-value val-tp" id="ui-tp2">--</span></div>
+        <div class="detail-row"><span class="detail-label">الهدف 3</span><span class="detail-value val-tp" id="ui-tp3">--</span></div>
+    </div>
+</div>
+
+<div id="tab-strategy" class="content">
+    <div class="settings-card">
+        <h3>🧠 AI Strategy Settings</h3>
+        <div class="input-group"><label>Fast EMA</label><input type="number" id="setEmaFast" class="input-field" value="9"></div>
+        <div class="input-group"><label>Slow EMA</label><input type="number" id="setEmaSlow" class="input-field" value="21"></div>
+        <div class="input-group"><label>RSI Length</label><input type="number" id="setRsi" class="input-field" value="14"></div>
+        <div class="input-group"><label>ADX Filter</label><input type="number" id="setAdx" class="input-field" value="20"></div>
+        <button class="btn btn-primary" onclick="saveStrategy()">Update AI Engine</button>
+    </div>
+</div>
+
+<div id="tab-history" class="content">
+    <div class="settings-card"><h3>📜 Trade History</h3><div id="history-list"><p style="color:#64748B;text-align:center;">No closed trades yet.</p></div></div>
+</div>
+
+<div id="tab-settings" class="content">
+    <div class="settings-card">
+        <h3>🔔 Alerts & System</h3>
+        <div class="input-group"><label>Vibration</label><label class="switch"><input type="checkbox" id="toggleVibrate" checked><span class="slider"></span></label></div>
+        <div class="input-group"><label>Telegram Image</label><label class="switch"><input type="checkbox" id="toggleImage" checked><span class="slider"></span></label></div>
+    </div>
+    <div class="settings-card"><h3>🔑 Twelve Data API</h3><input type="text" id="apiKeyInput" class="input-field full" placeholder="Paste API Key..."></div>
+    <div class="settings-card">
+        <h3>✈️ Telegram Bot</h3>
+        <input type="text" id="tgTokenInput" class="input-field full" placeholder="Bot Token">
+        <input type="text" id="tgChatIdInput" class="input-field full" placeholder="Chat ID" style="margin-top:10px;">
+        <button class="btn" onclick="testChartTelegram()">📸 Send Image Test</button>
+    </div>
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+</div>
+
+<div class="bottom-nav">
+    <div class="nav-item active" onclick="showTab('signals', this)"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 3v18h18V3H3zm16 16H5V5h14v14z"/></svg>Signals</div>
+    <div class="nav-item" onclick="showTab('strategy', this)"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>AI</div>
+    <div class="nav-item" onclick="showTab('history', this)"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9z"/></svg>History</div>
+    <div class="nav-item" onclick="showTab('settings', this)"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z"/></svg>Settings</div>
+</div>
+
+<script>
+if (window.Telegram && window.Telegram.WebApp) {
+    window.Telegram.WebApp.ready();
+    window.Telegram.WebApp.expand();
+}
+
+var appState = {
+    apiKey: '', tgToken: '', tgChatId: '', vibrate: true, sendImage: true,
+    asset: 'ETH/USD', tf: '1h', activeTrade: null, history: [],
+    strategy: { emaFast: 9, emaSlow: 21, rsi: 14, adx: 20 }
+};
+var chart, candleSeries, chartLines = [];
+var isFetching = false;
+
+function onReady() {
+    var saved = localStorage.getItem('ai_trading_web');
+    if(saved) {
+        try { 
+            var parsed = JSON.parse(saved); 
+            for(var k in parsed) appState[k] = parsed[k]; 
+        } catch(e){}
+    }
+    
+    document.getElementById('apiKeyInput').value = appState.apiKey;
+    document.getElementById('tgTokenInput').value = appState.tgToken;
+    document.getElementById('tgChatIdInput').value = appState.tgChatId;
+    document.getElementById('toggleVibrate').checked = appState.vibrate;
+    document.getElementById('toggleImage').checked = appState.sendImage;
+    document.getElementById('assetSelector').value = appState.asset;
+    document.getElementById('setEmaFast').value = appState.strategy.emaFast;
+    document.getElementById('setEmaSlow').value = appState.strategy.emaSlow;
+    document.getElementById('setRsi').value = appState.strategy.rsi;
+    document.getElementById('setAdx').value = appState.strategy.adx;
+
+    updateHeader();
+    renderHistory();
+    
+    var script = document.createElement('script');
+    script.src = 'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js';
+    script.onload = function() {
+        initChart();
+        if(appState.apiKey) {
+            fetchData();
+            setInterval(fetchData, 15000);
+        }
+    };
+    document.head.appendChild(script);
+    
+    if(appState.activeTrade) renderTradeDetails(appState.activeTrade);
+}
+window.addEventListener('load', onReady);
+
+function saveState() { localStorage.setItem('ai_trading_web', JSON.stringify(appState)); }
+
+function showTab(tabId, btn) {
+    document.querySelectorAll('.content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tabId).classList.add('active');
+    btn.classList.add('active');
+    
+    if(tabId === 'signals' && chart) {
+        setTimeout(() => {
+            var c = document.getElementById('chart-container');
+            chart.applyOptions({ width: c.clientWidth, height: c.clientHeight });
+            chart.timeScale().fitContent();
+            updateOverlayPositions();
+            if(appState.activeTrade) renderTradeDetails(appState.activeTrade);
+        }, 50);
+    }
+    if(tabId === 'history') renderHistory();
+}
+
+function saveStrategy() {
+    appState.strategy.emaFast = parseInt(document.getElementById('setEmaFast').value) || 9;
+    appState.strategy.emaSlow = parseInt(document.getElementById('setEmaSlow').value) || 21;
+    appState.strategy.rsi = parseInt(document.getElementById('setRsi').value) || 14;
+    appState.strategy.adx = parseInt(document.getElementById('setAdx').value) || 20;
+    saveState();
+    if(appState.vibrate) navigator.vibrate(100);
+    alert("Strategy updated successfully.");
+    showTab('signals', document.querySelectorAll('.nav-item')[0]);
+    if(appState.apiKey) fetchData();
+}
+
+function saveSettings() {
+    appState.apiKey = document.getElementById('apiKeyInput').value.trim();
+    appState.tgToken = document.getElementById('tgTokenInput').value.trim();
+    appState.tgChatId = document.getElementById('tgChatIdInput').value.trim();
+    appState.vibrate = document.getElementById('toggleVibrate').checked;
+    appState.sendImage = document.getElementById('toggleImage').checked;
+    saveState();
+    if(appState.vibrate) navigator.vibrate(100);
+    alert("Settings saved.");
+    showTab('signals', document.querySelectorAll('.nav-item')[0]);
+    if(appState.apiKey) fetchData();
+}
+
+function updateHeader() {
+    document.getElementById('headerAsset').innerText = appState.asset.replace('/','');
+    document.getElementById('headerTf').innerText = '• ' + appState.tf.toUpperCase().replace('MIN','M');
+}
+
+function changeAsset() {
+    appState.asset = document.getElementById('assetSelector').value;
+    saveState(); updateHeader();
+    appState.activeTrade = null; 
+    document.getElementById('detailsCard').style.display = 'none';
+    clearChartLines(); clearOverlayLabels();
+    if(appState.apiKey) fetchData();
+}
+
+function setTf(tf, btn) {
+    appState.tf = tf; saveState(); updateHeader();
+    document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    appState.activeTrade = null;
+    document.getElementById('detailsCard').style.display = 'none';
+    clearChartLines(); clearOverlayLabels();
+    if(appState.apiKey) fetchData();
+}
+
+function initChart() {
+    var c = document.getElementById('chart-container');
+    chart = LightweightCharts.createChart(c, {
+        width: c.clientWidth || 300, height: 320,
+        layout: { background: { type: 'solid', color: '#131722' }, textColor: '#94A3B8' },
+        grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
+        timeScale: { timeVisible: true, borderColor: 'rgba(255,255,255,0.1)' },
+        rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)', scaleMargins: { top: 0.1, bottom: 0.1 } }
+    });
+    candleSeries = chart.addCandlestickSeries({ upColor: '#00E676', downColor: '#FF5252', borderVisible: false, wickUpColor: '#00E676', wickDownColor: '#FF5252' });
+    chart.timeScale().subscribeVisibleLogicalRangeChange(updateOverlayPositions);
+}
+
+function fetchData() {
+    if(!appState.apiKey || isFetching) return;
+    isFetching = true;
+    var url = 'https://api.twelvedata.com/time_series?symbol=' + encodeURIComponent(appState.asset) + '&interval=' + appState.tf + '&outputsize=100&apikey=' + appState.apiKey;
+    
+    fetch(url).then(res => res.json()).then(data => {
+        isFetching = false;
+        if(data.values) processData(data.values);
+    }).catch(err => { isFetching = false; console.log("Fetch error", err); });
+}
+
+function processData(values) {
+    var reversed = values.reverse();
+    var formatted = reversed.map(function(d) {
+        var parts = d.datetime.split(' ');
+        var dp = parts[0].split('-');
+        var tp = parts.length > 1 ? parts[1].split(':') : ['00','00','00'];
+        var ts = Date.UTC(parseInt(dp[0]), parseInt(dp[1])-1, parseInt(dp[2]), parseInt(tp[0]), parseInt(tp[1]), parseInt(tp[2]||0)) / 1000;
+        return { time: ts, open: parseFloat(d.open), high: parseFloat(d.high), low: parseFloat(d.low), close: parseFloat(d.close) };
+    });
+    
+    candleSeries.setData(formatted);
+    chart.timeScale().fitContent();
+    
+    if (appState.activeTrade) renderTradeDetails(appState.activeTrade);
+    else setTimeout(updateOverlayPositions, 100);
+    
+    runAIEngine(formatted);
+}
+
+function getEMASeries(closes, period) {
+    var k = 2 / (period + 1), ema = [closes[0]];
+    for(var i=1; i<closes.length; i++) ema[i] = closes[i] * k + ema[i-1] * (1-k);
+    return ema;
+}
+function calcRSI(closes, period) {
+    var gains = 0, losses = 0;
+    for(var i=1; i<=period; i++) {
+        var diff = closes[i] - closes[i-1];
+        if(diff > 0) gains += diff; else losses -= diff;
+    }
+    var rs = (gains/period) / ((losses/period) || 1);
+    return 100 - (100 / (1 + rs));
+}
+function calcADX(candles, period) {
+    var tr = [], plusDM = [], minusDM = [];
+    for(var i=1; i<candles.length; i++) {
+        var c = candles[i], p = candles[i-1];
+        var up = c.high - p.high, down = p.low - c.low;
+        tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+        plusDM.push(up > down && up > 0 ? up : 0);
+        minusDM.push(down > up && down > 0 ? down : 0);
+    }
+    function smooth(data) {
+        var sum = 0, res = [];
+        for(var i=0; i<data.length; i++) { sum = sum - (sum/period) + data[i]; res.push(sum); }
+        return res;
+    }
+    var trSmooth = smooth(tr), plusSmooth = smooth(plusDM), minusSmooth = smooth(minusDM);
+    var dx = [];
+    for(var i=0; i<trSmooth.length; i++) {
+        if(trSmooth[i] === 0) continue;
+        var pDI = (plusSmooth[i] / trSmooth[i]) * 100, mDI = (minusSmooth[i] / trSmooth[i]) * 100;
+        dx.push(Math.abs(pDI - mDI) / (pDI + mDI) * 100);
+    }
+    var adx = smooth(dx); return adx[adx.length-1] || 0;
+}
+function getMACD(closes) {
+    var ema12 = getEMASeries(closes, 12), ema26 = getEMASeries(closes, 26), macdLine = [];
+    for(var i=0; i<closes.length; i++) macdLine[i] = ema12[i] - ema26[i];
+    var signalLine = getEMASeries(macdLine, 9);
+    return { macd: macdLine[macdLine.length-1], signal: signalLine[signalLine.length-1] };
+}
+
+function runAIEngine(candles) {
+    var closes = candles.map(c => c.close);
+    if(closes.length < 30) return;
+    var lastClose = closes[closes.length-1];
+    
+    var emaFast = getEMASeries(closes, appState.strategy.emaFast)[closes.length-1];
+    var emaSlow = getEMASeries(closes, appState.strategy.emaSlow)[closes.length-1];
+    var rsi = calcRSI(closes, appState.strategy.rsi);
+    var adx = calcADX(candles, 14);
+    var macdObj = getMACD(closes);
+    
+    var isTrending = adx > appState.strategy.adx;
+    var buySignal = (emaFast > emaSlow) && (rsi > 50 && rsi < 70) && (macdObj.macd > macdObj.signal) && isTrending;
+    var sellSignal = (emaFast < emaSlow) && (rsi < 50 && rsi > 30) && (macdObj.macd < macdObj.signal) && isTrending;
+    
+    if(appState.activeTrade) {
+        manageActiveTrade(lastClose, buySignal ? "BUY" : (sellSignal ? "SELL" : ""));
+    } else {
+        if(buySignal) triggerNewTrade("BUY", lastClose);
+        else if(sellSignal) triggerNewTrade("SELL", lastClose);
+    }
+}
+
+function triggerNewTrade(type, entry) {
+    var atr = entry * 0.005;
+    var sl = type === 'BUY' ? entry - (atr * 1.5) : entry + (atr * 1.5);
+    var tp1 = type === 'BUY' ? entry + (atr * 2) : entry - (atr * 2);
+    var tp2 = type === 'BUY' ? entry + (atr * 3) : entry - (atr * 3);
+    var tp3 = type === 'BUY' ? entry + (atr * 4) : entry - (atr * 4);
+    var rr = Math.abs((tp1 - entry) / (entry - sl)).toFixed(2);
+    appState.activeTrade = { type, entry, sl, tp1, tp2, tp3, rr, symbol: appState.asset.replace('/',''), tf: appState.tf, tp1Hit: false, reversalAlerted: false };
+    saveState(); renderTradeDetails(appState.activeTrade); triggerAlerts("🚨 New Trade Signal", appState.activeTrade);
+}
+
+function manageActiveTrade(currentPrice, currentSignal) {
+    var t = appState.activeTrade, updated = false;
+    if((t.type === 'BUY' && currentPrice <= t.sl) || (t.type === 'SELL' && currentPrice >= t.sl)) return closeTrade("❌ SL Hit", "loss", currentPrice);
+    if((t.type === 'BUY' && currentPrice >= t.tp3) || (t.type === 'SELL' && currentPrice <= t.tp3)) return closeTrade("🏆 TP3 Hit!", "win", currentPrice);
+    if(!t.tp1Hit && ((t.type === 'BUY' && currentPrice >= t.tp1) || (t.type === 'SELL' && currentPrice <= t.tp1))) {
+        t.tp1Hit = true; t.sl = t.entry; updated = true;
+        document.getElementById('ui-sl').innerText = t.sl.toFixed(2) + " (BE)";
+        updateChartLines(t); triggerAlerts("⚠️ TP1 Hit", t, "SL moved to Breakeven.");
+    }
+    if(!t.reversalAlerted && currentSignal !== "" && ((t.type === 'BUY' && currentSignal === 'SELL') || (t.type === 'SELL' && currentSignal === 'BUY'))) {
+        t.reversalAlerted = true; updated = true; triggerAlerts("⚠️ Reversal Warning", t, "Trend is reversing!");
+    }
+    if(updated) saveState();
+}
+
+function closeTrade(reason, result, exitPrice) {
+    var t = appState.activeTrade;
+    appState.history.unshift({ symbol: t.symbol, type: t.type, entry: t.entry, exit: exitPrice, result, reason, date: new Date().toLocaleDateString() });
+    appState.activeTrade = null; saveState();
+    document.getElementById('detailsCard').style.display = 'none';
+    clearChartLines(); clearOverlayLabels(); renderHistory();
+    triggerAlerts("Trade Closed", { type: t.type, symbol: t.symbol, entry: exitPrice, sl:0, tp1:0, tp2:0, tp3:0, rr:0 }, reason);
+}
+
+function clearChartLines() { chartLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch(e){} }); chartLines = []; }
+function updateChartLines(t) {
+    clearChartLines();
+    chartLines.push(candleSeries.createPriceLine({ price: t.tp3, color: '#00E676', lineWidth: 1, lineStyle: 2 }));
+    chartLines.push(candleSeries.createPriceLine({ price: t.tp2, color: '#00E676', lineWidth: 1, lineStyle: 2 }));
+    chartLines.push(candleSeries.createPriceLine({ price: t.tp1, color: '#00E676', lineWidth: 1, lineStyle: 2 }));
+    chartLines.push(candleSeries.createPriceLine({ price: t.entry, color: '#4FC3F7', lineWidth: 2, lineStyle: 0 }));
+    chartLines.push(candleSeries.createPriceLine({ price: t.sl, color: '#FF5252', lineWidth: 1, lineStyle: 2 }));
+}
+
+function renderTradeDetails(t) {
+    document.getElementById('detailsCard').style.display = 'block';
+    document.getElementById('ui-symbol').innerText = t.symbol;
+    var typeEl = document.getElementById('ui-type');
+    if(t.type === 'BUY') { typeEl.innerText = "Long شراء ↗"; typeEl.className = "detail-value val-type-long"; } else { typeEl.innerText = "Short بيع ↘"; typeEl.className = "detail-value val-type-short"; }
+    document.getElementById('ui-entry').innerText = t.entry.toFixed(2);
+    document.getElementById('ui-sl').innerText = t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : "");
+    document.getElementById('ui-tp1').innerText = t.tp1.toFixed(2);
+    document.getElementById('ui-tp2').innerText = t.tp2.toFixed(2);
+    document.getElementById('ui-tp3').innerText = t.tp3.toFixed(2);
+    updateChartLines(t); drawOverlayLabels(t);
+}
+
+function renderHistory() {
+    var container = document.getElementById('history-list');
+    if(appState.history.length === 0) { container.innerHTML = '<p style="color:#64748B;text-align:center;">No closed trades yet.</p>'; return; }
+    container.innerHTML = appState.history.map(h => `<div class="history-item ${h.result === 'win' ? 'win' : 'loss'}"><div><b>${h.symbol}</b> | ${h.type}<br><span style="font-size:11px;color:#64748B">${h.date}</span></div><div style="text-align:right"><span style="color:${h.result === 'win' ? '#00E676' : '#FF5252'};font-weight:800">${h.reason}</span></div></div>`).join('');
+}
+
+function clearOverlayLabels() { document.getElementById('labels-container').innerHTML = ''; }
+function drawOverlayLabels(t) {
+    clearOverlayLabels();
+    var container = document.getElementById('labels-container');
+    var labels = [ { text: 'TP3 ' + t.tp3.toFixed(2), price: t.tp3, color: '#00E676' }, { text: 'TP2 ' + t.tp2.toFixed(2), price: t.tp2, color: '#00E676' }, { text: 'TP1 ' + t.tp1.toFixed(2), price: t.tp1, color: '#00E676' }, { text: 'Entry ' + t.entry.toFixed(2), price: t.entry, color: '#4FC3F7' }, { text: 'SL ' + t.sl.toFixed(2), price: t.sl, color: '#FF5252' } ];
+    labels.forEach(l => {
+        var div = document.createElement('div');
+        div.className = 'overlay-label'; div.style.borderLeftColor = l.color;
+        div.innerHTML = `<div class="dot" style="background:${l.color}; color:${l.color}"></div> <span style="color:${l.color}">${l.text}</span>`;
+        div.setAttribute('data-price', l.price); container.appendChild(div);
+    });
+    setTimeout(updateOverlayPositions, 150);
+}
+
+function updateOverlayPositions() {
+    if(!chart || !appState.activeTrade) return;
+    var labels = document.getElementById('labels-container').querySelectorAll('.overlay-label');
+    var chartHeight = chart.height() || 320;
+    labels.forEach(div => {
+        var price = parseFloat(div.getAttribute('data-price'));
+        var y = chart.priceToCoordinate(price);
+        if(y !== null && !isNaN(y)) { div.style.top = Math.max(15, Math.min(y, chartHeight - 15)) + 'px'; div.style.display = 'flex'; } else { div.style.display = 'none'; }
+    });
+}
+
+function triggerAlerts(title, t, overrideText) {
+    if(appState.vibrate) navigator.vibrate([200, 100, 200]);
+    if(appState.tgToken && appState.tgChatId) {
+        if (appState.sendImage && t.entry > 0) sendTelegramWithImage(title, t, overrideText);
+        else sendTelegramText(title, t, overrideText);
+    }
+}
+
+function formatSignalText(title, t, overrideText) {
+    if (overrideText) return title + "\n\n" + overrideText;
+    return `${title}\n\n${t.type === 'BUY' ? '🟢 NEW BUY' : '🔴 NEW SELL'}\nAsset: ${t.symbol}\nEntry: ${t.entry.toFixed(2)}\nSL: ${t.sl.toFixed(2)}\nTP1: ${t.tp1.toFixed(2)}\nTP2: ${t.tp2.toFixed(2)}\nTP3: ${t.tp3.toFixed(2)}`;
+}
+
+function sendTelegramText(title, t, overrideText) {
+    var url = 'https://api.telegram.org/bot' + appState.tgToken + '/sendMessage';
+    fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ chat_id: appState.tgChatId, text: formatSignalText(title, t, overrideText) }) });
+}
+
+function sendTelegramWithImage(title, t, overrideText) {
+    try {
+        var chartCanvas = chart.takeScreenshot();
+        var c = document.createElement('canvas');
+        c.width = chartCanvas.width; c.height = chartCanvas.height + 400; 
+        var ctx = c.getContext('2d');
+        ctx.drawImage(chartCanvas, 0, 0);
+        ctx.fillStyle = '#131722'; ctx.fillRect(0, chartCanvas.height, c.width, 400);
+        ctx.fillStyle = '#4FC3F7'; ctx.font = 'bold 28px Arial'; ctx.textAlign = 'center'; ctx.fillText(title, c.width/2, chartCanvas.height + 50);
+        if(!overrideText) {
+            var startY = chartCanvas.height + 100; var stepY = 40; var leftX = 40; var rightX = c.width - 40;
+            function drawRow(l, v, clr) { ctx.fillStyle = '#64748B'; ctx.font = '20px Arial'; ctx.textAlign = 'left'; ctx.fillText(l, leftX, startY); ctx.fillStyle = clr; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'right'; ctx.fillText(v, rightX, startY); startY += stepY; }
+            drawRow('Symbol', t.symbol, '#E2E8F0'); drawRow('Type', t.type, t.type === 'BUY' ? '#00E676' : '#FF5252'); drawRow('Entry', t.entry.toFixed(2), '#4FC3F7'); drawRow('SL', t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : ""), '#FF5252'); drawRow('TP1', t.tp1.toFixed(2), '#00E676'); drawRow('TP2', t.tp2.toFixed(2), '#00E676'); drawRow('TP3', t.tp3.toFixed(2), '#00E676');
+        } else { ctx.fillStyle = '#E2E8F0'; ctx.font = '22px Arial'; ctx.fillText(overrideText, c.width/2, chartCanvas.height + 100); }
+        c.toBlob(function(blob) {
+            var formData = new FormData();
+            formData.append('chat_id', appState.tgChatId);
+            formData.append('caption', formatSignalText(title, t, overrideText));
+            formData.append('photo', blob, 'chart.jpg');
+            fetch('https://api.telegram.org/bot' + appState.tgToken + '/sendPhoto', { method: 'POST', body: formData }).catch(e => console.log(e));
+        }, 'image/jpeg', 0.85);
+    } catch(e) { sendTelegramText(title, t, overrideText); }
+}
+
+function testChartTelegram() {
+    var t = appState.activeTrade || { type: 'BUY', entry: 64200, sl: 63400, tp1: 65200, tp2: 65800, tp3: 66400, rr: 2.75, symbol: 'TEST' };
+    sendTelegramWithImage("📸 Test Image", t);
+    alert("Sending test image...");
+}
+</script>
+</body>
+</html>
