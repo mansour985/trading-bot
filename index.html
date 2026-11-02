@@ -129,7 +129,6 @@
         <input type="text" id="tgTokenInput" class="input-field full" placeholder="Bot Token">
         <input type="text" id="tgChatIdInput" class="input-field full" placeholder="Chat ID" style="margin-top:10px;">
         
-        <!-- أزرار التجربة والإصلاح -->
         <button class="btn" onclick="testTelegram()" style="margin-top:10px;">📨 إرسال تنبيه تجريبي (Test Telegram)</button>
         <button class="btn btn-danger" onclick="forceCloseTrade()">🛑 إغلاق الصفقة الحالية (Force Reset)</button>
     </div>
@@ -147,6 +146,15 @@
 if (window.Telegram && window.Telegram.WebApp) {
     window.Telegram.WebApp.ready();
     window.Telegram.WebApp.expand();
+}
+
+// Helper function for Alerts in Telegram
+function showMsg(msg) {
+    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showAlert) {
+        window.Telegram.WebApp.showAlert(msg);
+    } else {
+        alert(msg);
+    }
 }
 
 var appState = {
@@ -222,7 +230,7 @@ function saveStrategy() {
     appState.strategy.adx = parseInt(document.getElementById('setAdx').value) || 20;
     saveState();
     if(appState.vibrate) navigator.vibrate(100);
-    alert("Strategy updated successfully.");
+    showMsg("Strategy updated successfully.");
     showTab('signals', document.querySelectorAll('.nav-item')[0]);
     if(appState.apiKey) fetchData();
 }
@@ -235,44 +243,133 @@ function saveSettings() {
     appState.sendImage = document.getElementById('toggleImage').checked;
     saveState();
     if(appState.vibrate) navigator.vibrate(100);
-    alert("Settings saved.");
+    showMsg("Settings saved successfully.");
     showTab('signals', document.querySelectorAll('.nav-item')[0]);
     if(appState.apiKey) fetchData();
 }
 
-function updateHeader() {
-    document.getElementById('headerAsset').innerText = appState.asset.replace('/','');
-    document.getElementById('headerTf').innerText = '• ' + appState.tf.toUpperCase().replace('MIN','M');
+// --- Alerts & Telegram (V15 Fix) ---
+function testTelegram() {
+    // 1. Read directly from inputs just in case
+    var token = document.getElementById('tgTokenInput').value.trim();
+    var chatId = document.getElementById('tgChatIdInput').value.trim();
+
+    if (!token || !chatId) {
+        showMsg("Please enter Telegram Token and Chat ID first.");
+        return;
+    }
+
+    // 2. Save them to state to be safe
+    appState.tgToken = token;
+    appState.tgChatId = chatId;
+    saveState();
+
+    showMsg("Sending test text message... Please check Telegram.");
+
+    var url = 'https://api.telegram.org/bot' + token + '/sendMessage';
+    var formData = new URLSearchParams();
+    formData.append('chat_id', chatId);
+    formData.append('text', '✅ Test Message from your Trading App!\n\nIf you see this, your bot is connected correctly.');
+
+    fetch(url, { 
+        method: 'POST', 
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
+        body: formData.toString() 
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.ok) {
+            showMsg("✅ Success! Message sent to Telegram.");
+        } else {
+            showMsg("❌ Telegram Error: " + data.description);
+        }
+    })
+    .catch(err => {
+        showMsg("❌ Network Error: " + err.message);
+    });
 }
 
-function changeAsset() {
-    appState.asset = document.getElementById('assetSelector').value;
-    saveState(); updateHeader();
-    appState.activeTrade = null; 
-    document.getElementById('detailsCard').style.display = 'none';
-    clearChartLines(); clearOverlayLabels();
-    if(appState.apiKey) fetchData();
-}
-
-function setTf(tf, btn) {
-    appState.tf = tf; saveState(); updateHeader();
-    document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+function forceCloseTrade() {
     appState.activeTrade = null;
+    saveState();
     document.getElementById('detailsCard').style.display = 'none';
     clearChartLines(); clearOverlayLabels();
-    if(appState.apiKey) fetchData();
+    showMsg("Trade closed manually. Bot is ready for new signals.");
 }
+
+function triggerAlerts(title, t, overrideText) {
+    if(appState.vibrate) navigator.vibrate([200, 100, 200]);
+    if(appState.tgToken && appState.tgChatId) {
+        if (appState.sendImage && t.entry > 0) sendTelegramWithImage(title, t, overrideText);
+        else sendTelegramText(title, t, overrideText);
+    }
+}
+
+function formatSignalText(title, t, overrideText) {
+    if (overrideText) return title + "\n\n" + overrideText;
+    return `${title}\n\n${t.type === 'BUY' ? '🟢 NEW BUY' : '🔴 NEW SELL'}\nAsset: ${t.symbol}\nEntry: ${t.entry.toFixed(2)}\nSL: ${t.sl.toFixed(2)}\nTP1: ${t.tp1.toFixed(2)}\nTP2: ${t.tp2.toFixed(2)}\nTP3: ${t.tp3.toFixed(2)}`;
+}
+
+function sendTelegramText(title, t, overrideText) {
+    var url = 'https://api.telegram.org/bot' + appState.tgToken + '/sendMessage';
+    var formData = new URLSearchParams();
+    formData.append('chat_id', appState.tgChatId);
+    formData.append('text', formatSignalText(title, t, overrideText));
+
+    fetch(url, { method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: formData.toString() }).catch(e => console.log(e));
+}
+
+function sendTelegramWithImage(title, t, overrideText) {
+    try {
+        var chartCanvas = chart.takeScreenshot();
+        var c = document.createElement('canvas');
+        c.width = chartCanvas.width; c.height = chartCanvas.height + 400; 
+        var ctx = c.getContext('2d');
+        ctx.drawImage(chartCanvas, 0, 0);
+        ctx.fillStyle = '#131722'; ctx.fillRect(0, chartCanvas.height, c.width, 400);
+        ctx.fillStyle = '#4FC3F7'; ctx.font = 'bold 28px Arial'; ctx.textAlign = 'center'; ctx.fillText(title, c.width/2, chartCanvas.height + 50);
+        
+        if(!overrideText) {
+            var startY = chartCanvas.height + 100; var stepY = 40; var leftX = 40; var rightX = c.width - 40;
+            function drawRow(l, v, clr) { ctx.fillStyle = '#64748B'; ctx.font = '20px Arial'; ctx.textAlign = 'left'; ctx.fillText(l, leftX, startY); ctx.fillStyle = clr; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'right'; ctx.fillText(v, rightX, startY); startY += stepY; }
+            drawRow('Symbol', t.symbol, '#E2E8F0'); drawRow('Type', t.type, t.type === 'BUY' ? '#00E676' : '#FF5252'); drawRow('Entry', t.entry.toFixed(2), '#4FC3F7'); drawRow('SL', t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : ""), '#FF5252'); drawRow('TP1', t.tp1.toFixed(2), '#00E676'); drawRow('TP2', t.tp2.toFixed(2), '#00E676'); drawRow('TP3', t.tp3.toFixed(2), '#00E676');
+        } else { 
+            ctx.fillStyle = '#E2E8F0'; ctx.font = '22px Arial'; ctx.fillText(overrideText, c.width/2, chartCanvas.height + 100); 
+        }
+        
+        c.toBlob(function(blob) {
+            var formData = new FormData();
+            formData.append('chat_id', appState.tgChatId);
+            formData.append('caption', formatSignalText(title, t, overrideText));
+            formData.append('photo', blob, 'chart.jpg');
+            
+            fetch('https://api.telegram.org/bot' + appState.tgToken + '/sendPhoto', { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if(!data.ok) {
+                    console.log("Telegram Image Error:", data.description);
+                    sendTelegramText(title, t, overrideText); // Fallback to text
+                }
+            })
+            .catch(e => {
+                console.log("Network Error:", e.message);
+                sendTelegramText(title, t, overrideText); // Fallback to text
+            });
+            
+        }, 'image/jpeg', 0.85);
+    } catch(e) { 
+        sendTelegramText(title, t, overrideText); 
+    }
+}
+
+// ... Rest of the chart and AI logic ...
+function updateHeader() { document.getElementById('headerAsset').innerText = appState.asset.replace('/',''); document.getElementById('headerTf').innerText = '• ' + appState.tf.toUpperCase().replace('MIN','M'); }
+function changeAsset() { appState.asset = document.getElementById('assetSelector').value; saveState(); updateHeader(); appState.activeTrade = null; document.getElementById('detailsCard').style.display = 'none'; clearChartLines(); clearOverlayLabels(); if(appState.apiKey) fetchData(); }
+function setTf(tf, btn) { appState.tf = tf; saveState(); updateHeader(); document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); appState.activeTrade = null; document.getElementById('detailsCard').style.display = 'none'; clearChartLines(); clearOverlayLabels(); if(appState.apiKey) fetchData(); }
 
 function initChart() {
     var c = document.getElementById('chart-container');
-    chart = LightweightCharts.createChart(c, {
-        width: c.clientWidth || 300, height: 320,
-        layout: { background: { type: 'solid', color: '#131722' }, textColor: '#94A3B8' },
-        grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } },
-        timeScale: { timeVisible: true, borderColor: 'rgba(255,255,255,0.1)' },
-        rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)', scaleMargins: { top: 0.1, bottom: 0.1 } }
-    });
+    chart = LightweightCharts.createChart(c, { width: c.clientWidth || 300, height: 320, layout: { background: { type: 'solid', color: '#131722' }, textColor: '#94A3B8' }, grid: { vertLines: { color: 'rgba(255,255,255,0.03)' }, horzLines: { color: 'rgba(255,255,255,0.03)' } }, timeScale: { timeVisible: true, borderColor: 'rgba(255,255,255,0.1)' }, rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)', scaleMargins: { top: 0.1, bottom: 0.1 } } });
     candleSeries = chart.addCandlestickSeries({ upColor: '#00E676', downColor: '#FF5252', borderVisible: false, wickUpColor: '#00E676', wickDownColor: '#FF5252' });
     chart.timeScale().subscribeVisibleLogicalRangeChange(updateOverlayPositions);
 }
@@ -281,11 +378,7 @@ function fetchData() {
     if(!appState.apiKey || isFetching) return;
     isFetching = true;
     var url = 'https://api.twelvedata.com/time_series?symbol=' + encodeURIComponent(appState.asset) + '&interval=' + appState.tf + '&outputsize=100&apikey=' + appState.apiKey;
-    
-    fetch(url).then(res => res.json()).then(data => {
-        isFetching = false;
-        if(data.values) processData(data.values);
-    }).catch(err => { isFetching = false; console.log("Fetch error", err); });
+    fetch(url).then(res => res.json()).then(data => { isFetching = false; if(data.values) processData(data.values); }).catch(err => { isFetching = false; console.log(err); });
 }
 
 function processData(values) {
@@ -297,78 +390,33 @@ function processData(values) {
         var ts = Date.UTC(parseInt(dp[0]), parseInt(dp[1])-1, parseInt(dp[2]), parseInt(tp[0]), parseInt(tp[1]), parseInt(tp[2]||0)) / 1000;
         return { time: ts, open: parseFloat(d.open), high: parseFloat(d.high), low: parseFloat(d.low), close: parseFloat(d.close) };
     });
-    
     candleSeries.setData(formatted);
     chart.timeScale().fitContent();
-    
     if (appState.activeTrade) renderTradeDetails(appState.activeTrade);
     else setTimeout(updateOverlayPositions, 100);
-    
     runAIEngine(formatted);
 }
 
-function getEMASeries(closes, period) {
-    var k = 2 / (period + 1), ema = [closes[0]];
-    for(var i=1; i<closes.length; i++) ema[i] = closes[i] * k + ema[i-1] * (1-k);
-    return ema;
-}
-function calcRSI(closes, period) {
-    var gains = 0, losses = 0;
-    for(var i=1; i<=period; i++) {
-        var diff = closes[i] - closes[i-1];
-        if(diff > 0) gains += diff; else losses -= diff;
-    }
-    var rs = (gains/period) / ((losses/period) || 1);
-    return 100 - (100 / (1 + rs));
-}
-function calcADX(candles, period) {
-    var tr = [], plusDM = [], minusDM = [];
-    for(var i=1; i<candles.length; i++) {
-        var c = candles[i], p = candles[i-1];
-        var up = c.high - p.high, down = p.low - c.low;
-        tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
-        plusDM.push(up > down && up > 0 ? up : 0);
-        minusDM.push(down > up && down > 0 ? down : 0);
-    }
-    function smooth(data) {
-        var sum = 0, res = [];
-        for(var i=0; i<data.length; i++) { sum = sum - (sum/period) + data[i]; res.push(sum); }
-        return res;
-    }
-    var trSmooth = smooth(tr), plusSmooth = smooth(plusDM), minusSmooth = smooth(minusDM);
-    var dx = [];
-    for(var i=0; i<trSmooth.length; i++) {
-        if(trSmooth[i] === 0) continue;
-        var pDI = (plusSmooth[i] / trSmooth[i]) * 100, mDI = (minusSmooth[i] / trSmooth[i]) * 100;
-        dx.push(Math.abs(pDI - mDI) / (pDI + mDI) * 100);
-    }
-    var adx = smooth(dx); return adx[adx.length-1] || 0;
-}
-function getMACD(closes) {
-    var ema12 = getEMASeries(closes, 12), ema26 = getEMASeries(closes, 26), macdLine = [];
-    for(var i=0; i<closes.length; i++) macdLine[i] = ema12[i] - ema26[i];
-    var signalLine = getEMASeries(macdLine, 9);
-    return { macd: macdLine[macdLine.length-1], signal: signalLine[signalLine.length-1] };
-}
+function getEMASeries(closes, period) { var k = 2 / (period + 1), ema = [closes[0]]; for(var i=1; i<closes.length; i++) ema[i] = closes[i] * k + ema[i-1] * (1-k); return ema; }
+function calcRSI(closes, period) { var gains = 0, losses = 0; for(var i=1; i<=period; i++) { var diff = closes[i] - closes[i-1]; if(diff > 0) gains += diff; else losses -= diff; } var rs = (gains/period) / ((losses/period) || 1); return 100 - (100 / (1 + rs)); }
+function calcADX(candles, period) { var tr = [], plusDM = [], minusDM = []; for(var i=1; i<candles.length; i++) { var c = candles[i], p = candles[i-1]; var up = c.high - p.high, down = p.low - c.low; tr.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close))); plusDM.push(up > down && up > 0 ? up : 0); minusDM.push(down > up && down > 0 ? down : 0); } function smooth(data) { var sum = 0, res = []; for(var i=0; i<data.length; i++) { sum = sum - (sum/period) + data[i]; res.push(sum); } return res; } var trSmooth = smooth(tr), plusSmooth = smooth(plusDM), minusSmooth = smooth(minusDM); var dx = []; for(var i=0; i<trSmooth.length; i++) { if(trSmooth[i] === 0) continue; var pDI = (plusSmooth[i] / trSmooth[i]) * 100, mDI = (minusSmooth[i] / trSmooth[i]) * 100; dx.push(Math.abs(pDI - mDI) / (pDI + mDI) * 100); } var adx = smooth(dx); return adx[adx.length-1] || 0; }
+function getMACD(closes) { var ema12 = getEMASeries(closes, 12), ema26 = getEMASeries(closes, 26), macdLine = []; for(var i=0; i<closes.length; i++) macdLine[i] = ema12[i] - ema26[i]; var signalLine = getEMASeries(macdLine, 9); return { macd: macdLine[macdLine.length-1], signal: signalLine[signalLine.length-1] }; }
 
 function runAIEngine(candles) {
     var closes = candles.map(c => c.close);
     if(closes.length < 30) return;
     var lastClose = closes[closes.length-1];
-    
     var emaFast = getEMASeries(closes, appState.strategy.emaFast)[closes.length-1];
     var emaSlow = getEMASeries(closes, appState.strategy.emaSlow)[closes.length-1];
     var rsi = calcRSI(closes, appState.strategy.rsi);
     var adx = calcADX(candles, 14);
     var macdObj = getMACD(closes);
-    
     var isTrending = adx > appState.strategy.adx;
     var buySignal = (emaFast > emaSlow) && (rsi > 50 && rsi < 70) && (macdObj.macd > macdObj.signal) && isTrending;
     var sellSignal = (emaFast < emaSlow) && (rsi < 50 && rsi > 30) && (macdObj.macd < macdObj.signal) && isTrending;
     
-    if(appState.activeTrade) {
-        manageActiveTrade(lastClose, buySignal ? "BUY" : (sellSignal ? "SELL" : ""));
-    } else {
+    if(appState.activeTrade) manageActiveTrade(lastClose, buySignal ? "BUY" : (sellSignal ? "SELL" : ""));
+    else {
         if(buySignal) triggerNewTrade("BUY", lastClose);
         else if(sellSignal) triggerNewTrade("SELL", lastClose);
     }
@@ -390,9 +438,7 @@ function manageActiveTrade(currentPrice, currentSignal) {
     if((t.type === 'BUY' && currentPrice <= t.sl) || (t.type === 'SELL' && currentPrice >= t.sl)) return closeTrade("❌ SL Hit", "loss", currentPrice);
     if((t.type === 'BUY' && currentPrice >= t.tp3) || (t.type === 'SELL' && currentPrice <= t.tp3)) return closeTrade("🏆 TP3 Hit!", "win", currentPrice);
     if(!t.tp1Hit && ((t.type === 'BUY' && currentPrice >= t.tp1) || (t.type === 'SELL' && currentPrice <= t.tp1))) {
-        t.tp1Hit = true; t.sl = t.entry; updated = true;
-        document.getElementById('ui-sl').innerText = t.sl.toFixed(2) + " (BE)";
-        updateChartLines(t); triggerAlerts("⚠️ TP1 Hit", t, "SL moved to Breakeven.");
+        t.tp1Hit = true; t.sl = t.entry; updated = true; document.getElementById('ui-sl').innerText = t.sl.toFixed(2) + " (BE)"; updateChartLines(t); triggerAlerts("⚠️ TP1 Hit", t, "SL moved to Breakeven.");
     }
     if(!t.reversalAlerted && currentSignal !== "" && ((t.type === 'BUY' && currentSignal === 'SELL') || (t.type === 'SELL' && currentSignal === 'BUY'))) {
         t.reversalAlerted = true; updated = true; triggerAlerts("⚠️ Reversal Warning", t, "Trend is reversing!");
@@ -403,40 +449,16 @@ function manageActiveTrade(currentPrice, currentSignal) {
 function closeTrade(reason, result, exitPrice) {
     var t = appState.activeTrade;
     appState.history.unshift({ symbol: t.symbol, type: t.type, entry: t.entry, exit: exitPrice, result, reason, date: new Date().toLocaleDateString() });
-    appState.activeTrade = null; saveState();
-    document.getElementById('detailsCard').style.display = 'none';
-    clearChartLines(); clearOverlayLabels(); renderHistory();
-    triggerAlerts("Trade Closed", { type: t.type, symbol: t.symbol, entry: exitPrice, sl:0, tp1:0, tp2:0, tp3:0, rr:0 }, reason);
-}
-
-function forceCloseTrade() {
-    appState.activeTrade = null;
-    saveState();
-    document.getElementById('detailsCard').style.display = 'none';
-    clearChartLines(); clearOverlayLabels();
-    alert("Trade closed manually. Bot is ready for new signals.");
+    appState.activeTrade = null; saveState(); document.getElementById('detailsCard').style.display = 'none'; clearChartLines(); clearOverlayLabels(); renderHistory(); triggerAlerts("Trade Closed", { type: t.type, symbol: t.symbol, entry: exitPrice, sl:0, tp1:0, tp2:0, tp3:0, rr:0 }, reason);
 }
 
 function clearChartLines() { chartLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch(e){} }); chartLines = []; }
-function updateChartLines(t) {
-    clearChartLines();
-    chartLines.push(candleSeries.createPriceLine({ price: t.tp3, color: '#00E676', lineWidth: 1, lineStyle: 2 }));
-    chartLines.push(candleSeries.createPriceLine({ price: t.tp2, color: '#00E676', lineWidth: 1, lineStyle: 2 }));
-    chartLines.push(candleSeries.createPriceLine({ price: t.tp1, color: '#00E676', lineWidth: 1, lineStyle: 2 }));
-    chartLines.push(candleSeries.createPriceLine({ price: t.entry, color: '#4FC3F7', lineWidth: 2, lineStyle: 0 }));
-    chartLines.push(candleSeries.createPriceLine({ price: t.sl, color: '#FF5252', lineWidth: 1, lineStyle: 2 }));
-}
+function updateChartLines(t) { clearChartLines(); chartLines.push(candleSeries.createPriceLine({ price: t.tp3, color: '#00E676', lineWidth: 1, lineStyle: 2 })); chartLines.push(candleSeries.createPriceLine({ price: t.tp2, color: '#00E676', lineWidth: 1, lineStyle: 2 })); chartLines.push(candleSeries.createPriceLine({ price: t.tp1, color: '#00E676', lineWidth: 1, lineStyle: 2 })); chartLines.push(candleSeries.createPriceLine({ price: t.entry, color: '#4FC3F7', lineWidth: 2, lineStyle: 0 })); chartLines.push(candleSeries.createPriceLine({ price: t.sl, color: '#FF5252', lineWidth: 1, lineStyle: 2 })); }
 
 function renderTradeDetails(t) {
-    document.getElementById('detailsCard').style.display = 'block';
-    document.getElementById('ui-symbol').innerText = t.symbol;
-    var typeEl = document.getElementById('ui-type');
-    if(t.type === 'BUY') { typeEl.innerText = "Long شراء ↗"; typeEl.className = "detail-value val-type-long"; } else { typeEl.innerText = "Short بيع ↘"; typeEl.className = "detail-value val-type-short"; }
-    document.getElementById('ui-entry').innerText = t.entry.toFixed(2);
-    document.getElementById('ui-sl').innerText = t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : "");
-    document.getElementById('ui-tp1').innerText = t.tp1.toFixed(2);
-    document.getElementById('ui-tp2').innerText = t.tp2.toFixed(2);
-    document.getElementById('ui-tp3').innerText = t.tp3.toFixed(2);
+    document.getElementById('detailsCard').style.display = 'block'; document.getElementById('ui-symbol').innerText = t.symbol;
+    var typeEl = document.getElementById('ui-type'); if(t.type === 'BUY') { typeEl.innerText = "Long شراء ↗"; typeEl.className = "detail-value val-type-long"; } else { typeEl.innerText = "Short بيع ↘"; typeEl.className = "detail-value val-type-short"; }
+    document.getElementById('ui-entry').innerText = t.entry.toFixed(2); document.getElementById('ui-sl').innerText = t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : ""); document.getElementById('ui-tp1').innerText = t.tp1.toFixed(2); document.getElementById('ui-tp2').innerText = t.tp2.toFixed(2); document.getElementById('ui-tp3').innerText = t.tp3.toFixed(2);
     updateChartLines(t); drawOverlayLabels(t);
 }
 
@@ -448,100 +470,22 @@ function renderHistory() {
 
 function clearOverlayLabels() { document.getElementById('labels-container').innerHTML = ''; }
 function drawOverlayLabels(t) {
-    clearOverlayLabels();
-    var container = document.getElementById('labels-container');
+    clearOverlayLabels(); var container = document.getElementById('labels-container');
     var labels = [ { text: 'TP3 ' + t.tp3.toFixed(2), price: t.tp3, color: '#00E676' }, { text: 'TP2 ' + t.tp2.toFixed(2), price: t.tp2, color: '#00E676' }, { text: 'TP1 ' + t.tp1.toFixed(2), price: t.tp1, color: '#00E676' }, { text: 'Entry ' + t.entry.toFixed(2), price: t.entry, color: '#4FC3F7' }, { text: 'SL ' + t.sl.toFixed(2), price: t.sl, color: '#FF5252' } ];
     labels.forEach(l => {
-        var div = document.createElement('div');
-        div.className = 'overlay-label'; div.style.borderLeftColor = l.color;
-        div.innerHTML = `<div class="dot" style="background:${l.color}; color:${l.color}"></div> <span style="color:${l.color}">${l.text}</span>`;
-        div.setAttribute('data-price', l.price); container.appendChild(div);
+        var div = document.createElement('div'); div.className = 'overlay-label'; div.style.borderLeftColor = l.color;
+        div.innerHTML = `<div class="dot" style="background:${l.color}; color:${l.color}"></div> <span style="color:${l.color}">${l.text}</span>`; div.setAttribute('data-price', l.price); container.appendChild(div);
     });
     setTimeout(updateOverlayPositions, 150);
 }
 
 function updateOverlayPositions() {
     if(!chart || !appState.activeTrade) return;
-    var labels = document.getElementById('labels-container').querySelectorAll('.overlay-label');
-    var chartHeight = chart.height() || 320;
+    var labels = document.getElementById('labels-container').querySelectorAll('.overlay-label'); var chartHeight = chart.height() || 320;
     labels.forEach(div => {
-        var price = parseFloat(div.getAttribute('data-price'));
-        var y = chart.priceToCoordinate(price);
+        var price = parseFloat(div.getAttribute('data-price')); var y = chart.priceToCoordinate(price);
         if(y !== null && !isNaN(y)) { div.style.top = Math.max(15, Math.min(y, chartHeight - 15)) + 'px'; div.style.display = 'flex'; } else { div.style.display = 'none'; }
     });
-}
-
-function triggerAlerts(title, t, overrideText) {
-    if(appState.vibrate) navigator.vibrate([200, 100, 200]);
-    if(appState.tgToken && appState.tgChatId) {
-        if (appState.sendImage && t.entry > 0) sendTelegramWithImage(title, t, overrideText);
-        else sendTelegramText(title, t, overrideText);
-    }
-}
-
-function formatSignalText(title, t, overrideText) {
-    if (overrideText) return title + "\n\n" + overrideText;
-    return `${title}\n\n${t.type === 'BUY' ? '🟢 NEW BUY' : '🔴 NEW SELL'}\nAsset: ${t.symbol}\nEntry: ${t.entry.toFixed(2)}\nSL: ${t.sl.toFixed(2)}\nTP1: ${t.tp1.toFixed(2)}\nTP2: ${t.tp2.toFixed(2)}\nTP3: ${t.tp3.toFixed(2)}`;
-}
-
-// 🛠️ تم إصلاح دالة إرسال النص لتعمل على المتصفح وتلغرام بدون مشاكل
-function sendTelegramText(title, t, overrideText) {
-    var url = 'https://api.telegram.org/bot' + appState.tgToken + '/sendMessage';
-    
-    var formData = new URLSearchParams();
-    formData.append('chat_id', appState.tgChatId);
-    formData.append('text', formatSignalText(title, t, overrideText));
-
-    fetch(url, { 
-        method: 'POST', 
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
-        body: formData.toString() 
-    })
-    .then(res => res.json())
-    .then(data => {
-        if(!data.ok) alert("Telegram Error: " + data.description);
-    })
-    .catch(err => {
-        alert("Network Error: " + err.message);
-    });
-}
-
-function sendTelegramWithImage(title, t, overrideText) {
-    try {
-        var chartCanvas = chart.takeScreenshot();
-        var c = document.createElement('canvas');
-        c.width = chartCanvas.width; c.height = chartCanvas.height + 400; 
-        var ctx = c.getContext('2d');
-        ctx.drawImage(chartCanvas, 0, 0);
-        ctx.fillStyle = '#131722'; ctx.fillRect(0, chartCanvas.height, c.width, 400);
-        ctx.fillStyle = '#4FC3F7'; ctx.font = 'bold 28px Arial'; ctx.textAlign = 'center'; ctx.fillText(title, c.width/2, chartCanvas.height + 50);
-        if(!overrideText) {
-            var startY = chartCanvas.height + 100; var stepY = 40; var leftX = 40; var rightX = c.width - 40;
-            function drawRow(l, v, clr) { ctx.fillStyle = '#64748B'; ctx.font = '20px Arial'; ctx.textAlign = 'left'; ctx.fillText(l, leftX, startY); ctx.fillStyle = clr; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'right'; ctx.fillText(v, rightX, startY); startY += stepY; }
-            drawRow('Symbol', t.symbol, '#E2E8F0'); drawRow('Type', t.type, t.type === 'BUY' ? '#00E676' : '#FF5252'); drawRow('Entry', t.entry.toFixed(2), '#4FC3F7'); drawRow('SL', t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : ""), '#FF5252'); drawRow('TP1', t.tp1.toFixed(2), '#00E676'); drawRow('TP2', t.tp2.toFixed(2), '#00E676'); drawRow('TP3', t.tp3.toFixed(2), '#00E676');
-        } else { ctx.fillStyle = '#E2E8F0'; ctx.font = '22px Arial'; ctx.fillText(overrideText, c.width/2, chartCanvas.height + 100); }
-        
-        c.toBlob(function(blob) {
-            var formData = new FormData();
-            formData.append('chat_id', appState.tgChatId);
-            formData.append('caption', formatSignalText(title, t, overrideText));
-            formData.append('photo', blob, 'chart.jpg');
-            
-            fetch('https://api.telegram.org/bot' + appState.tgToken + '/sendPhoto', { method: 'POST', body: formData })
-            .then(res => res.json())
-            .then(data => {
-                if(!data.ok) alert("Telegram Image Error: " + data.description);
-            })
-            .catch(e => alert("Network Error: " + e.message));
-            
-        }, 'image/jpeg', 0.85);
-    } catch(e) { sendTelegramText(title, t, overrideText); }
-}
-
-function testTelegram() {
-    var t = appState.activeTrade || { type: 'BUY', entry: 64200, sl: 63400, tp1: 65200, tp2: 65800, tp3: 66400, rr: 2.75, symbol: 'TEST' };
-    sendTelegramWithImage("📸 Test Image Alert", t);
-    alert("Sending test message... Please check Telegram.");
 }
 </script>
 </body>
