@@ -45,6 +45,7 @@
     .input-field.full { width: 100%; text-align: left; }
     .btn { width: 100%; background: rgba(41, 98, 255, 0.15); color: #4FC3F7; border: 1px solid rgba(41, 98, 255, 0.4); padding: 14px; border-radius: 12px; font-weight: 800; cursor: pointer; text-align: center; margin-bottom: 12px; }
     .btn-primary { background: linear-gradient(90deg, #2962FF, #1565C0); color: white; border: none; }
+    .btn-danger { background: rgba(255, 82, 82, 0.15); color: #FF5252; border-color: rgba(255, 82, 82, 0.4); }
     
     .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
     .switch input { opacity: 0; width: 0; height: 0; }
@@ -127,7 +128,10 @@
         <h3>✈️ Telegram Bot</h3>
         <input type="text" id="tgTokenInput" class="input-field full" placeholder="Bot Token">
         <input type="text" id="tgChatIdInput" class="input-field full" placeholder="Chat ID" style="margin-top:10px;">
-        <button class="btn" onclick="testChartTelegram()">📸 Send Image Test</button>
+        
+        <!-- أزرار التجربة والإصلاح -->
+        <button class="btn" onclick="testTelegram()" style="margin-top:10px;">📨 إرسال تنبيه تجريبي (Test Telegram)</button>
+        <button class="btn btn-danger" onclick="forceCloseTrade()">🛑 إغلاق الصفقة الحالية (Force Reset)</button>
     </div>
     <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
 </div>
@@ -405,6 +409,14 @@ function closeTrade(reason, result, exitPrice) {
     triggerAlerts("Trade Closed", { type: t.type, symbol: t.symbol, entry: exitPrice, sl:0, tp1:0, tp2:0, tp3:0, rr:0 }, reason);
 }
 
+function forceCloseTrade() {
+    appState.activeTrade = null;
+    saveState();
+    document.getElementById('detailsCard').style.display = 'none';
+    clearChartLines(); clearOverlayLabels();
+    alert("Trade closed manually. Bot is ready for new signals.");
+}
+
 function clearChartLines() { chartLines.forEach(l => { try { candleSeries.removePriceLine(l); } catch(e){} }); chartLines = []; }
 function updateChartLines(t) {
     clearChartLines();
@@ -472,9 +484,26 @@ function formatSignalText(title, t, overrideText) {
     return `${title}\n\n${t.type === 'BUY' ? '🟢 NEW BUY' : '🔴 NEW SELL'}\nAsset: ${t.symbol}\nEntry: ${t.entry.toFixed(2)}\nSL: ${t.sl.toFixed(2)}\nTP1: ${t.tp1.toFixed(2)}\nTP2: ${t.tp2.toFixed(2)}\nTP3: ${t.tp3.toFixed(2)}`;
 }
 
+// 🛠️ تم إصلاح دالة إرسال النص لتعمل على المتصفح وتلغرام بدون مشاكل
 function sendTelegramText(title, t, overrideText) {
     var url = 'https://api.telegram.org/bot' + appState.tgToken + '/sendMessage';
-    fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ chat_id: appState.tgChatId, text: formatSignalText(title, t, overrideText) }) });
+    
+    var formData = new URLSearchParams();
+    formData.append('chat_id', appState.tgChatId);
+    formData.append('text', formatSignalText(title, t, overrideText));
+
+    fetch(url, { 
+        method: 'POST', 
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
+        body: formData.toString() 
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(!data.ok) alert("Telegram Error: " + data.description);
+    })
+    .catch(err => {
+        alert("Network Error: " + err.message);
+    });
 }
 
 function sendTelegramWithImage(title, t, overrideText) {
@@ -491,20 +520,28 @@ function sendTelegramWithImage(title, t, overrideText) {
             function drawRow(l, v, clr) { ctx.fillStyle = '#64748B'; ctx.font = '20px Arial'; ctx.textAlign = 'left'; ctx.fillText(l, leftX, startY); ctx.fillStyle = clr; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'right'; ctx.fillText(v, rightX, startY); startY += stepY; }
             drawRow('Symbol', t.symbol, '#E2E8F0'); drawRow('Type', t.type, t.type === 'BUY' ? '#00E676' : '#FF5252'); drawRow('Entry', t.entry.toFixed(2), '#4FC3F7'); drawRow('SL', t.sl.toFixed(2) + (t.tp1Hit ? " (BE)" : ""), '#FF5252'); drawRow('TP1', t.tp1.toFixed(2), '#00E676'); drawRow('TP2', t.tp2.toFixed(2), '#00E676'); drawRow('TP3', t.tp3.toFixed(2), '#00E676');
         } else { ctx.fillStyle = '#E2E8F0'; ctx.font = '22px Arial'; ctx.fillText(overrideText, c.width/2, chartCanvas.height + 100); }
+        
         c.toBlob(function(blob) {
             var formData = new FormData();
             formData.append('chat_id', appState.tgChatId);
             formData.append('caption', formatSignalText(title, t, overrideText));
             formData.append('photo', blob, 'chart.jpg');
-            fetch('https://api.telegram.org/bot' + appState.tgToken + '/sendPhoto', { method: 'POST', body: formData }).catch(e => console.log(e));
+            
+            fetch('https://api.telegram.org/bot' + appState.tgToken + '/sendPhoto', { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                if(!data.ok) alert("Telegram Image Error: " + data.description);
+            })
+            .catch(e => alert("Network Error: " + e.message));
+            
         }, 'image/jpeg', 0.85);
     } catch(e) { sendTelegramText(title, t, overrideText); }
 }
 
-function testChartTelegram() {
+function testTelegram() {
     var t = appState.activeTrade || { type: 'BUY', entry: 64200, sl: 63400, tp1: 65200, tp2: 65800, tp3: 66400, rr: 2.75, symbol: 'TEST' };
-    sendTelegramWithImage("📸 Test Image", t);
-    alert("Sending test image...");
+    sendTelegramWithImage("📸 Test Image Alert", t);
+    alert("Sending test message... Please check Telegram.");
 }
 </script>
 </body>
